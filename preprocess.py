@@ -45,5 +45,9 @@ clients_per_day_df.reset_index(drop=True, inplace=True)
 print(usage_over_time_df.head())
 print(clients_per_day_df.head())
 
+# Guardar los DataFrames limpios en archivos CSV
+usage_over_time_df.to_csv('usage_over_time.csv', index=False)
+clients_per_day_df.to_csv('clients_per_day.csv', index=False)
+
 # A partir de aquí, puedes continuar con el análisis exploratorio,
 # la ingeniería de características y la preparación de los datos para el modelo LSTM.
