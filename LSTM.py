@@ -150,7 +150,7 @@ class NET_LSTM:
         return predictions_df
 
 # Load and preprocess data
-file_path = './outup/usage_over_time.csv'
+file_path = './outup/usage_over_time_filtrado.csv'
 df = NET_LSTM.load_and_preprocess_data(file_path)
 
 # Scale the data
@@ -175,7 +175,7 @@ plt.ylabel('Total Network Usage (Gb/s)')
 plt.subplot(1, 2, 2)
 sns.boxplot(x='day_of_week', y='total_gb_s', data=df)
 plt.title('Distribución del Uso Total de la Red por Día de la Semana')
-plt.xlabel('Day of the Week (0=Monday, 6=Sunday)')
+plt.xlabel('Day of the Week (0=Monday, 5=Saturday)')
 plt.ylabel('Total Network Usage (Gb/s)')
 
 plt.tight_layout()
