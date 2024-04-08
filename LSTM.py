@@ -67,11 +67,11 @@ class NET_LSTM:
             color='skyblue',
             edgecolor='black'
         )
-        plt.title(f'Distribution of {column}')
+        plt.title(f'Distribution of {column}')#--------------PRIMERA GRAFICA ------------------------********
         plt.xlabel(xlabel)
         plt.ylabel('Frequency')
         plt.grid(axis='y', alpha=0.75)
-        plt.show()
+        plt.show()#-------------------------------------------------------------********
 
     @staticmethod
     def scale_data(df: pd.DataFrame, columns: list, target_column: str = 'total_gb_s'):
@@ -163,7 +163,7 @@ NET_LSTM.plot_distribution(df, 'total_gb_s')  # Plot histogram
 # df = pd.get_dummies(df, columns=['hour', 'day_of_week', 'day_of_month', 'month'])
 # df.head()
 
-plt.figure(figsize=(16, 6))
+plt.figure(figsize=(16, 6)) #--------------SEGUNDA GRAFICA --------------------------------------------->
 # Graphical representation of the distribution of the total network usage by hour of the day
 plt.subplot(1, 2, 1)
 sns.boxplot(x='hour', y='total_gb_s', data=df,)
@@ -179,7 +179,7 @@ plt.xlabel('Day of the Week (0=Monday, 6=Sunday)')
 plt.ylabel('Total Network Usage (Gb/s)')
 
 plt.tight_layout()
-plt.show()
+plt.show()#------------------------------------------------------------------------------>
 
 
 required_cols = ['download_gb_s', 'total_gb_s', 'hour', 'day_of_week', 'day_of_month', 'month', 'is_holiday']
@@ -209,7 +209,7 @@ timestamps_test = timestamps[train_size + val_size:] # Store the timestamps for 
 n_features = X_train.shape[2]  # Number of features
 
 # Build the model
-model = Sequential([
+model = Sequential([# CONSTRUCCION DEL MODELO ----------------------------------->
     Input(shape=(n_steps, n_features)),
     LSTM(128, activation='relu', return_sequences=True),
     Dropout(0.2),
@@ -241,7 +241,7 @@ model_checkpoint = ModelCheckpoint(
 )
 
 # Train the model
-history = model.fit(
+history = model.fit(# ENTRENAMIENTO DEL MODELO ------------------------------------>
     X_train, y_train,
     validation_data=(X_val, y_val),
     epochs=100,
@@ -255,13 +255,14 @@ print(f'Test Loss: {test_loss}')
 
 predictions = model.predict(X_test)
 
-plt.plot(history.history['loss'])
+
+plt.plot(history.history['loss'])#--------------TERCERA GRAFICA --------------------------------------------->
 plt.plot(history.history['val_loss'])
 plt.title('Model Loss')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.legend(['Train', 'Validation'], loc='upper right')
-plt.show()
+plt.show()#------------------------------------------------------------------------------------------->
 
 # Calculate and pritn error metrics
 mae = mean_absolute_error(y_test, predictions)
@@ -272,7 +273,7 @@ print("Mean Absolute Error", mae)
 print("Mean Squared Error", mse)
 print("Root Mean Squared Error", rmse)
 
-# Visualization of the Predictions vs Real Values
+# Visualization of the Predictions vs Real Values CUARTA GRAFICA --------------------------------------------->
 plt.figure(figsize=(10, 6))
 plt.plot(timestamps_test[-42:], y_test[-42:], label='Real', marker='.')
 plt.plot(timestamps_test[-42:], predictions[-42:], label='Predicted', linestyle='--', marker='.')
@@ -283,14 +284,15 @@ plt.legend()
 plt.grid(True)
 plt.xticks(rotation=45) # Rotate x-axis labels for better readability
 plt.tight_layout() # Ensure the labels fit within the figure area
-plt.show()
+plt.show() #---------------------------------------------------------------------------------------------------->
 
 n_steps_into_future = 42  # Number of steps into the future
 future_predictions = NET_LSTM.predict_future_steps(model, X_test[-1], n_steps_into_future)
 
 future_timestamps = pd.date_range(start=timestamps_test[-1], periods=n_steps_into_future + 1, freq='4h')[1:]
 
-plt.figure(figsize=(10, 6))
+
+plt.figure(figsize=(10, 6))#--------------GRAFICA PREDICTIVA --------------------------------------------------------->
 plt.plot(future_timestamps[-42:], future_predictions[-42:], label='Future Predictions', marker='o', linestyle='--', color='red')
 plt.title('Future Network Usage Predictions')
 plt.xlabel('Time')
@@ -299,4 +301,4 @@ plt.legend()
 plt.grid(True)
 plt.xticks(rotation=45)
 plt.tight_layout()
-plt.show()
+plt.show()#------------------------------------------------------------------------------------------------------------->
