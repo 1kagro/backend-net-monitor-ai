@@ -1,7 +1,7 @@
 import pandas as pd
 
 # Cargar el archivo CSV
-file_path = './outup/usage_over_time.csv'  # Asegúrate de actualizar esta ruta al archivo CSV original
+file_path = '../outup/usage_over_time.csv'  # Asegúrate de actualizar esta ruta al archivo CSV original
 data = pd.read_csv(file_path)
 
 # Convertir la columna 'Time' a datetime
@@ -32,7 +32,7 @@ data_filtered_final = data_filtered[~data_filtered['Time'].dt.date.isin(holidays
 data_filtered_final.drop('Weekday', axis=1, inplace=True)
 
 # Guardar el dataframe filtrado en un nuevo archivo CSV
-filtered_file_path = './outup/usage_over_time_filtrado.csv'  # Actualiza esta ruta según sea necesario
+filtered_file_path = '../outup/usage_over_time_filtrado.csv'  # Actualiza esta ruta según sea necesario
 data_filtered_final.to_csv(filtered_file_path, index=False)
 
 print(f"Archivo guardado: {filtered_file_path}")
