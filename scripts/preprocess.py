@@ -30,9 +30,6 @@ for file in excel_files:
 usage_over_time_df = pd.concat(usage_over_time_list, ignore_index=True)
 clients_per_day_df = pd.concat(clients_per_day_list, ignore_index=True)
 
-# Limpieza básica de datos
-# Aquí puedes añadir cualquier paso específico de limpieza que necesites
-
 # Ordenar por fecha si aún no lo están
 usage_over_time_df.sort_values('Time', inplace=True)
 clients_per_day_df.sort_values('Time', inplace=True)
