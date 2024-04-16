@@ -11,6 +11,8 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
+from statsmodels.tsa.seasonal import seasonal_decompose
+
 import holidays
 
 class NET_LSTM:
@@ -30,26 +32,47 @@ class NET_LSTM:
         - A pandas dataframe with the processed data.
         """
         df = pd.read_csv(file_path)
-        df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('(', '').str.replace(')', '')
-        df['time'] = pd.to_datetime(df['time'])
-        df.set_index('time', inplace=True)
-        df.sort_values('time', inplace=True)  # Ensure data is ordered by time
-        # df.index = df.index.tz_convert('America/Bogota')
         
-        df['download_gb_s'] = df['download_b/s'] / (10**9)
-        df['total_gb_s'] = df['total_b/s'] / (10**9)
+        data_cleaned = df.drop_duplicates()  # Drop duplicates
         
-        df['hour'] = df.index.hour
-        df['day_of_week'] = df.index.dayofweek  # Extract day of the week (0=Monday, 6=Sunday)
-        df['day_of_month'] = df.index.day  # Extract day of the month (1-31)
-        df['month'] = df.index.month
-        df['is_weekend'] = df['day_of_week'].apply(lambda x: 1 if x >= 5 else 0)
+        data_cleaned = data_cleaned.drop_duplicates(
+            subset='Time')  # Drop duplicates based on 'Time' column
         
-        # Identify Colombian holidays
-        col_holidays = holidays.Colombia()
-        df['is_holiday'] = [1 if date in col_holidays else 0 for date in df.index.date]
+        data_cleaned['Time'] = pd.to_datetime(data_cleaned['Time'])  # Convert 'Time' to datetime format
+        
+        # convert bytes to Gb
+        data_cleaned['Total (b/s)'] = data_cleaned['Total (b/s)'] / 1e9
+        data_cleaned['Download (b/s)'] = data_cleaned['Download (b/s)'] / 1e9
 
-        return df
+        # Rename columns
+        data_cleaned.rename(columns={
+            'Total (b/s)': 'Total (Gb/s)',
+            'Download (b/s)': 'Download (Gb/s)'
+            }, inplace=True)
+
+        time_intervals_cleaned = data_cleaned['Time'].diff().value_counts() # Check for time intervals
+        
+        data_cleaned.set_index('Time', inplace=True) # Set 'Time' as index
+        
+        data_interpolated = data_cleaned.resample('4H').interpolate() # Interpolate missing values, resample to 4-hour intervals
+
+        new_time_intervals = data_interpolated.index.to_series().diff().value_counts() # Check new time intervals
+        
+        data_interpolated.reset_index(inplace=True) # Reset index
+        data_interpolated.head(), new_time_intervals # Display first rows and new time intervals
+
+        col_holidays = holidays.CountryHoliday('CO', years=[2022, 2023, 2024, 2025]) # Colombian holidays
+        
+        holidays_df = pd.DataFrame(
+            sorted(col_holidays.items()), columns=['Date', 'Holiday'])
+
+        holidays_df['Date'] = pd.to_datetime(holidays_df['Date'])
+
+        data_interpolated['Holiday'] = data_interpolated['Time'].dt.date.isin(
+            holidays_df['Date'].dt.date).astype(int) # Create 'Holiday' column
+        
+        data_interpolated.head(), holidays_df.head() # Display first rows of the data and holidays dataframes
+        return data_interpolated
 
     @staticmethod
     def plot_distribution(df: pd.DataFrame, column: str, xlabel: str = 'Total speed (Gb/s)'):
@@ -74,14 +97,60 @@ class NET_LSTM:
         plt.show()
 
     @staticmethod
-    def scale_data(df: pd.DataFrame, columns: list, target_column: str = 'total_gb_s'):
+    def boxplot(df: pd.DataFrame):
+        """
+        Plot a boxplot of the specified column.
+        :param df: a pandas dataframe
+        :param column: the column to plot
+        :return: None
+        """
+        sns.set_theme(style="whitegrid")
+        
+        fig, axs = plt.subplots(
+            nrows=2, 
+            figsize=(10, 8),
+            constrained_layout=True
+            )
+        
+        sns.boxplot(x=df['Download (Gb/s)'], ax=axs[0])
+        axs[0].set_title('Boxplot de Descarga (Gb/s)')
+        sns.boxplot(x=df['Total (Gb/s)'], ax=axs[1])
+        axs[1].set_title('Boxplot de Total (Gb/s)')
+
+        plt.show()
+    
+    @staticmethod
+    def seasonal_decompose(df: pd.DataFrame):
+        """
+        Decompose the time series into its components
+        :param df: a pandas dataframe
+        """
+        # Configurar la frecuencia de los datos como diaria (6 registros por día, cada 4 horas)
+        
+        # Set the 'Time' column as the index of the dataframe
+        # data_interpolated.set_index('Time', inplace=True)
+
+        # Decompose the time series into its components, using a period of 6 days (6*24 hours)
+        decomposition = seasonal_decompose(df['Total (Gb/s)'], model='additive', period=6*24)
+        
+        decompose_fig = decomposition.plot()
+        decompose_fig.set_size_inches(14, 10)
+        plt.show()
+    
+    @staticmethod
+    def scale_data(df: pd.DataFrame):
         """
         Scale the specified columns of the dataframe
+        data_interpolated
         """
+        features = df[['Download (Gb/s)', 'Total (Gb/s)', 'Holiday']]   # Select the features
+        
         scaler = MinMaxScaler()
-        df_scaled = scaler.fit_transform(df[columns])
-        df_scaled = pd.DataFrame(df_scaled, columns=columns, index=df.index)
-        return df_scaled
+        features_scaled = scaler.fit_transform(features)
+        features_scaled_df = pd.DataFrame(features_scaled, columns=features.columns, index=features.index)
+        
+        features_scaled_df.head() # Display the first rows of the scaled features
+        return features_scaled_df
     
     @staticmethod
     def create_sequences(df: pd.DataFrame, n_steps: int):
@@ -149,154 +218,157 @@ class NET_LSTM:
 
         return predictions_df
 
+    def create_sequences(input_data, target_column, sequence_length):
+        sequences = []
+        target = []
+        for i in range(len(input_data) - sequence_length):
+            # Get the sequence
+            seq = input_data[i:i + sequence_length]
+            # Get the target for the sequence
+            label = input_data.iloc[i + sequence_length][target_column]
+            sequences.append(seq)
+            target.append(label)
+        return np.array(sequences), np.array(target)
+    
 # Load and preprocess data
 file_path = './outup/usage_over_time.csv'
-df = NET_LSTM.load_and_preprocess_data(file_path)
+data_interpolated = NET_LSTM.load_and_preprocess_data(file_path)
 
-# Scale the data
-columns_to_scale = ['download_gb_s', 'total_gb_s', 'hour',
-                    'day_of_week', 'day_of_month', 'month', 'is_weekend', 'is_holiday']
-df_scaled = NET_LSTM.scale_data(df, columns_to_scale)  # Scale the data
+## Data Exploration
 
-# Visualize the distribution of the total speed (Gb/s)
-NET_LSTM.plot_distribution(df, 'total_gb_s')  # Plot histogram
-# df = pd.get_dummies(df, columns=['hour', 'day_of_week', 'day_of_month', 'month'])
-# df.head()
+# Plot the distribution of the 'Total (Gb/s)' column and the 'Download (Gb/s)' column
+NET_LSTM.boxplot(data_interpolated)
 
-plt.figure(figsize=(16, 6))
-# Graphical representation of the distribution of the total network usage by hour of the day
-plt.subplot(1, 2, 1)
-sns.boxplot(x='hour', y='total_gb_s', data=df,)
-plt.title('Distribución del Uso Total de la Red por Hora del Día')
-plt.xlabel('Hour of the Day')
-plt.ylabel('Total Network Usage (Gb/s)')
-
-# Graphical representation of the distribution of the total network usage by day of the week
-plt.subplot(1, 2, 2)
-sns.boxplot(x='day_of_week', y='total_gb_s', data=df)
-plt.title('Distribución del Uso Total de la Red por Día de la Semana')
-plt.xlabel('Day of the Week (0=Monday, 6=Sunday)')
-plt.ylabel('Total Network Usage (Gb/s)')
-
-plt.tight_layout()
-plt.show()
+# Plot the distribution of the 'Total (Gb/s)' column
+NET_LSTM.seasonal_decompose(data_interpolated)
 
 
-required_cols = ['download_gb_s', 'total_gb_s', 'hour', 'day_of_week', 'day_of_month', 'month', 'is_holiday']
-df = df[required_cols]
-df.head()
+features_scaled_df = NET_LSTM.scale_data(data_interpolated)
 
-df.isna().sum()
-df = df.ffill()  # Fill missing values
+sequence_length = 48 # Number of time steps based on 4-hour intervals (48 * 4h = 192h) = 8 days
+features_sequences, target_sequences = NET_LSTM.create_sequences(features_scaled_df, 'Total (Gb/s)', sequence_length)
 
-# scaled_features = NET_LSTM.scale_data(df)  # Scale the data
-# Number of time steps based on 7 days (24h/4h = 6 * 7d = 42)
-n_steps = 42
+# Split the data into training, validation, and test sets, using an 80-10-10 split
+split_train = int(0.8 * len(features_sequences))
+split_val = int(0.9 * len(features_sequences))
 
-# Create sequences (Divide the data into input and target)
-X, y, timestamps = NET_LSTM.create_sequences_with_timestamps(df_scaled, n_steps, 'total_gb_s')
+X_train, Y_train = features_sequences[:split_train], target_sequences[:split_train]
+X_val, Y_val = features_sequences[split_train:split_val], target_sequences[split_train:split_val]
+X_test, Y_test = features_sequences[split_val:], target_sequences[split_val:]
 
-train_size = int(len(X) * 0.7)  # 70% train, 20% validation, 10% test
-val_size = int(len(X) * 0.2)
-
-X_train, X_val, X_test = X[:train_size], X[train_size:train_size + val_size], X[train_size + val_size:]
-y_train, y_val, y_test = y[:train_size], y[train_size:train_size + val_size], y[train_size + val_size:]
-timestamps_test = timestamps[train_size + val_size:] # Store the timestamps for the test set
-
-# X_train.shape, X_val.shape, X_test.shape
-# y_train.shape, y_val.shape, y_test.shape
-
-n_features = X_train.shape[2]  # Number of features
+# Display the shapes of the training, validation, and test sets
+X_train.shape, Y_train.shape, X_val.shape, Y_val.shape, X_test.shape, Y_test.shape
 
 # Build the model
 model = Sequential([
-    Input(shape=(n_steps, n_features)),
-    LSTM(128, activation='relu', return_sequences=True),
-    Dropout(0.2),
-    LSTM(64, activation='relu'),
-    Dropout(0.2),
+    LSTM(50, input_shape=(
+        X_train.shape[1], X_train.shape[2]), return_sequences=False),
     Dense(1)
 ])
 
-model.compile(optimizer='adam', loss='mse', metrics=['mae'])
-model.summary()
+model.compile(optimizer='adam', loss='mean_squared_error') # Compile the model
 
-## Define callbacks
-
-# Early stopping
-early_stopping = EarlyStopping(
-    monitor='val_loss',
-    patience=10,
-    mode='min',
-    restore_best_weights=True
-)
-
-# Model checkpoint
-model_checkpoint = ModelCheckpoint(
-    'best_model11.keras',
-    monitor='val_loss',
-    save_best_only=True,
-    # save_weights_only=False,
-    # mode='min'
-)
+model.summary() # Display the model summary
 
 # Train the model
 history = model.fit(
-    X_train, y_train,
-    validation_data=(X_val, y_val),
-    epochs=100,
-    batch_size=64,
-    callbacks=[early_stopping, model_checkpoint],
-    verbose=1
-)
+    X_train, Y_train, epochs=50, batch_size=32,
+    validation_data=(X_val, Y_val), verbose=1)
 
-test_loss = model.evaluate(X_test, y_test)
-print(f'Test Loss: {test_loss}')
+# Evaluate the model
+test_loss = model.evaluate(X_test, Y_test)
 
-predictions = model.predict(X_test)
+model.save('new_model_lstm.keras')
 
-plt.plot(history.history['loss'])
-plt.plot(history.history['val_loss'])
-plt.title('Model Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.legend(['Train', 'Validation'], loc='upper right')
-plt.show()
+# Build the model
+# model = Sequential([
+#     Input(shape=(n_steps, n_features)),
+#     LSTM(128, activation='relu', return_sequences=True),
+#     Dropout(0.2),
+#     LSTM(64, activation='relu'),
+#     Dropout(0.2),
+#     Dense(1)
+# ])
 
-# Calculate and pritn error metrics
-mae = mean_absolute_error(y_test, predictions)
-mse = mean_squared_error(y_test, predictions)
-rmse = np.sqrt(mse)  # Correct RMSE calculation
+# model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+# model.summary()
 
-print("Mean Absolute Error", mae)
-print("Mean Squared Error", mse)
-print("Root Mean Squared Error", rmse)
+## Define callbacks
 
-# Visualization of the Predictions vs Real Values
-plt.figure(figsize=(10, 6))
-plt.plot(timestamps_test[-42:], y_test[-42:], label='Real', marker='.')
-plt.plot(timestamps_test[-42:], predictions[-42:], label='Predicted', linestyle='--', marker='.')
-plt.title('Usage Over Time: Real vs Predicted')
-plt.xlabel('Time')
-plt.ylabel('Network Usage (Gb/s)')
-plt.legend()
-plt.grid(True)
-plt.xticks(rotation=45) # Rotate x-axis labels for better readability
-plt.tight_layout() # Ensure the labels fit within the figure area
-plt.show()
+# # Early stopping
+# early_stopping = EarlyStopping(
+#     monitor='val_loss',
+#     patience=10,
+#     mode='min',
+#     restore_best_weights=True
+# )
 
-n_steps_into_future = 42  # Number of steps into the future
-future_predictions = NET_LSTM.predict_future_steps(model, X_test[-1], n_steps_into_future)
+# # Model checkpoint
+# model_checkpoint = ModelCheckpoint(
+#     'best_model11.keras',
+#     monitor='val_loss',
+#     save_best_only=True,
+#     # save_weights_only=False,
+#     # mode='min'
+# )
 
-future_timestamps = pd.date_range(start=timestamps_test[-1], periods=n_steps_into_future + 1, freq='4h')[1:]
+# # Train the model
+# history = model.fit(
+#     X_train, y_train,
+#     validation_data=(X_val, y_val),
+#     epochs=100,
+#     batch_size=64,
+#     callbacks=[early_stopping, model_checkpoint],
+#     verbose=1
+# )
 
-plt.figure(figsize=(10, 6))
-plt.plot(future_timestamps[-42:], future_predictions[-42:], label='Future Predictions', marker='o', linestyle='--', color='red')
-plt.title('Future Network Usage Predictions')
-plt.xlabel('Time')
-plt.ylabel('Network Usage (Gb/s)')
-plt.legend()
-plt.grid(True)
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.show()
+# test_loss = model.evaluate(X_test, y_test)
+# print(f'Test Loss: {test_loss}')
+
+# predictions = model.predict(X_test)
+
+# plt.plot(history.history['loss'])
+# plt.plot(history.history['val_loss'])
+# plt.title('Model Loss')
+# plt.xlabel('Epoch')
+# plt.ylabel('Loss')
+# plt.legend(['Train', 'Validation'], loc='upper right')
+# plt.show()
+
+# # Calculate and pritn error metrics
+# mae = mean_absolute_error(y_test, predictions)
+# mse = mean_squared_error(y_test, predictions)
+# rmse = np.sqrt(mse)  # Correct RMSE calculation
+
+# print("Mean Absolute Error", mae)
+# print("Mean Squared Error", mse)
+# print("Root Mean Squared Error", rmse)
+
+# # Visualization of the Predictions vs Real Values
+# plt.figure(figsize=(10, 6))
+# plt.plot(timestamps_test[-42:], y_test[-42:], label='Real', marker='.')
+# plt.plot(timestamps_test[-42:], predictions[-42:], label='Predicted', linestyle='--', marker='.')
+# plt.title('Usage Over Time: Real vs Predicted')
+# plt.xlabel('Time')
+# plt.ylabel('Network Usage (Gb/s)')
+# plt.legend()
+# plt.grid(True)
+# plt.xticks(rotation=45) # Rotate x-axis labels for better readability
+# plt.tight_layout() # Ensure the labels fit within the figure area
+# plt.show()
+
+# n_steps_into_future = 42  # Number of steps into the future
+# future_predictions = NET_LSTM.predict_future_steps(model, X_test[-1], n_steps_into_future)
+
+# future_timestamps = pd.date_range(start=timestamps_test[-1], periods=n_steps_into_future + 1, freq='4h')[1:]
+
+# plt.figure(figsize=(10, 6))
+# plt.plot(future_timestamps[-42:], future_predictions[-42:], label='Future Predictions', marker='o', linestyle='--', color='red')
+# plt.title('Future Network Usage Predictions')
+# plt.xlabel('Time')
+# plt.ylabel('Network Usage (Gb/s)')
+# plt.legend()
+# plt.grid(True)
+# plt.xticks(rotation=45)
+# plt.tight_layout()
+# plt.show()
