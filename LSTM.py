@@ -278,6 +278,8 @@ history = model.fit(
 # Evaluate the model
 test_loss = model.evaluate(X_test, Y_test)
 
+predictions = model.predict(X_test)
+
 model.save('new_model_lstm.keras')
 
 # Build the model
